@@ -1,0 +1,16 @@
+{% autoescape off %}
+
+Dear {{ last_name }} {{ first_name }},
+
+I am writing to confirm your reservation at {{ restaurant }} on {{ date }}. We are delighted to have you as our guest and look forward to providing you with an enjoyable experience.
+
+Your reservation is confirmed for {{ time }}. Please note that your table will be held for 15 minutes past your reserved time. If you want to cancel reservation use this link: http://localhost:3000/cancel-reservation/{{ reservation }}/ or contact us so that we may make arrangements to accommodate you.
+
+If you have any special requests or requirements, please do not hesitate to contact us. We will do our best to accommodate your needs and make your visit as comfortable as possible.
+
+Thank you for choosing {{ restaurant }}. We look forward to seeing you soon.
+
+Best regards,
+ResooTime
+
+{% endautoescape %}
