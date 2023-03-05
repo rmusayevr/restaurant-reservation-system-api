@@ -14,12 +14,10 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
 from django.conf import settings
 from django.urls import path, include
 from django.conf.urls.static import static
-from rest_framework.schemas import get_schema_view
-from django.views.generic import TemplateView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from rest_framework.authtoken import views
 
 urlpatterns = [
@@ -27,14 +25,9 @@ urlpatterns = [
     path('api/', include('restaurant.api.urls')),
     path('api-token-auth', views.obtain_auth_token),
     path('api/password_reset/', include('django_rest_passwordreset.urls', namespace='password_reset')),
-    path('openapi/', get_schema_view(
-        title="Restaurant R",
-        description="API developers hpoing to use our service"
-    ), name='openapi-schema'),
-    path('docs/', TemplateView.as_view(
-        template_name='documentation.html',
-        extra_context={'schema_url':'openapi-schema'}
-    ), name='swagger-ui')
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    # path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
