@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User, Category, Image, Restaurant, Table, Reservation
+from .models import User, Category, Image, Restaurant, Table, Reservation, Map, WorkingTime
 
 
 class CustomerUserAdmin(UserAdmin):
@@ -22,5 +22,7 @@ admin.site.register(User, CustomerUserAdmin)
 admin.site.register(Category)
 admin.site.register(Image)
 admin.site.register(Restaurant)
+admin.site.register(WorkingTime)
 admin.site.register(Table)
+admin.site.register(Map)
 admin.site.register(Reservation)

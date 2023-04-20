@@ -11,9 +11,10 @@ from reservation_system.settings import EMAIL_HOST_USER
 
 class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(_('email address'), unique=True)
-    first_name = models.CharField(_('first name'), max_length=30, blank=True)
-    last_name = models.CharField(_('last name'), max_length=30, blank=True)
-    phone_number = models.CharField(_('phone number'), max_length=30, blank=True)
+    first_name = models.CharField(_('first name'), max_length=30)
+    last_name = models.CharField(_('last name'), max_length=30)
+    phone_number = models.CharField(_('phone number'), max_length=30)
+    additions = models.TextField(_('your additions'),)
     restaurant_name = models.CharField(_('restaurant name'), max_length=100, blank=True)
     location = models.TextField(_('location'), blank=True)
     date_joined = models.DateTimeField(_('date joined'), auto_now_add=True)
@@ -80,9 +81,10 @@ class Category(models.Model):
 
 class Image(models.Model):
     image = models.ImageField(upload_to="restaurant_images")
+    restaurant = models.ForeignKey("Restaurant", on_delete=models.CASCADE, related_name='restaurant_images', null=True, blank=True)
 
     def __str__(self):
-        return f'{self.pk}'
+        return f"{self.restaurant.name}'s image"
 
     class Meta:
         verbose_name = "Restaurant Image"
@@ -103,12 +105,13 @@ class Restaurant(models.Model):
     rate = models.IntegerField(choices=rates, null=True, blank=True)
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="restaurant_category", null=True, blank=True)
     people_count = models.PositiveIntegerField(null=True, blank=True)
-    images = models.ManyToManyField(Image, related_name='restaurant_images')
     description = models.TextField(null=True, blank=True)
+    googleMapLink = models.TextField(null=True, blank=True)
     is_verified = models.BooleanField(default=False)
+    phone = models.CharField(max_length=20)
+    restaurantHours = models.BooleanField(default=True)
     subscription = models.CharField(max_length=30, null=True, blank=True)
     user_id = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_restaurant", blank=True, null=True)
-    wall = models.ImageField(upload_to='Wall Images', null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -117,18 +120,28 @@ class Restaurant(models.Model):
         verbose_name = "Restaurant"
         verbose_name_plural = "Restaurants"
 
-class Table(models.Model):
-    types = {
-        ('small', 'small'),
-        ('medium', 'medium'),
-        ('large', 'large')
-    }
+class WorkingTime(models.Model):
+    day = models.CharField(max_length=30)
+    open_at = models.CharField(max_length=20)
+    close_at = models.CharField(max_length=20)
+    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='restaurant_working_times')
 
+    def __str__(self):
+        return f"{self.restaurant.name}'s {self.day} --> {self.open_at}-{self.close_at}" 
+    
+    class Meta:
+        verbose_name = "Working Time"
+        verbose_name_plural = "Working Times"
+
+
+class Table(models.Model):
     name = models.CharField(max_length=50)
-    type = models.CharField(max_length=6, choices=types)
+    type = models.CharField(max_length=20)
     count = models.PositiveIntegerField()
     xcod = models.IntegerField()
     ycod = models.IntegerField()
+    size = models.DecimalField(decimal_places=2, max_digits=3, blank=True, null=True)
+    rotate = models.IntegerField(blank=True, null=True)
     restaurant_id = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='restaurant_table')
 
     def __str__(self):
@@ -137,6 +150,18 @@ class Table(models.Model):
     class Meta:
         verbose_name = "Table"
         verbose_name_plural = "Tables"
+
+class Map(models.Model):
+    wall = models.FileField(upload_to='Wall Images', null=True, blank=True)
+    table = models.ManyToManyField(Table, related_name='tables_in_map')
+    restaurant = models.OneToOneField(Restaurant, on_delete=models.CASCADE, related_name="restaurant_map")
+
+    def __str__(self):
+        return f"{self.restaurant.name}'s map"
+
+    class Meta:
+        verbose_name = "Map"
+        verbose_name_plural = "Maps"
 
 class Reservation(models.Model):
     user_id = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_reservation", null=True, blank=True)
@@ -147,7 +172,7 @@ class Reservation(models.Model):
     restaurant_id = models.ForeignKey(Restaurant, on_delete=models.CASCADE, null=True, blank=True, related_name="reserved_restaurant")
     date = models.DateTimeField()
     table_id = models.ForeignKey(Table, on_delete=models.CASCADE, related_name="reserved_table")
-    is_active = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.user_id}'s {self.date} reservation"

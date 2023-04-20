@@ -164,7 +164,7 @@ REST_FRAMEWORK = {
         'knox.auth.TokenAuthentication',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend']
 }
 
 SPECTACULAR_SETTINGS = {
@@ -172,14 +172,15 @@ SPECTACULAR_SETTINGS = {
     # 'DESCRIPTION': 'Your project description',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True
     # OTHER SETTINGS
 }
+
+DATETIME_INPUT_FORMATS = ['%d/%m/%Y %H:%M']  
 
 EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST="smtp.gmail.com"
 EMAIL_USE_TLS=True
 EMAIL_PORT=587
-EMAIL_HOST_USER='rasmusayevhad@gmail.com'
-EMAIL_HOST_PASSWORD='dyjbxkltynicpkzy'
-
-DATETIME_INPUT_FORMATS = ['%d/%m/%Y %H:%M']  
+EMAIL_HOST_USER='resootime@gmail.com'
+EMAIL_HOST_PASSWORD='dvnbolhbrdgplikz'

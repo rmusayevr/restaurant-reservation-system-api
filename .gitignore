@@ -1,6 +1,0 @@
-# environment
-env
-
-# databases
-db.sqlite3
-migrations
