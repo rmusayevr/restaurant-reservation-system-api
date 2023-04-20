@@ -1,0 +1,15 @@
+
+# environment
+env
+
+# databases
+db.sqlite3
+migrations
+
+
+# EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend"
+# EMAIL_HOST="smtp.gmail.com"
+# EMAIL_USE_TLS=True
+# EMAIL_PORT=587
+# EMAIL_HOST_USER='resootime@gmail.com'
+# EMAIL_HOST_PASSWORD='dvnbolhbrdgplikz'
