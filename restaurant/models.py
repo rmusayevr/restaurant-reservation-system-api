@@ -112,6 +112,7 @@ class Restaurant(models.Model):
     restaurantHours = models.BooleanField(default=True)
     subscription = models.CharField(max_length=30, null=True, blank=True)
     user_id = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_restaurant", blank=True, null=True)
+    is_allowed = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name
@@ -132,6 +133,19 @@ class WorkingTime(models.Model):
     class Meta:
         verbose_name = "Working Time"
         verbose_name_plural = "Working Times"
+
+class OnlineReservTime(models.Model):
+    day = models.CharField(max_length=30)
+    open_at = models.CharField(max_length=20)
+    close_at = models.CharField(max_length=20)
+    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='restaurant_online_reserv_times')
+
+    def __str__(self):
+        return f"{self.restaurant.name}'s {self.day} --> {self.open_at}-{self.close_at}" 
+    
+    class Meta:
+        verbose_name = "Online Reserv Time"
+        verbose_name_plural = "Online Reserv Times"
 
 
 class Table(models.Model):
@@ -171,7 +185,9 @@ class Reservation(models.Model):
     phone_number = models.CharField(_('phone number'), max_length=30, blank=True, null=True)
     restaurant_id = models.ForeignKey(Restaurant, on_delete=models.CASCADE, null=True, blank=True, related_name="reserved_restaurant")
     date = models.DateTimeField()
-    table_id = models.ForeignKey(Table, on_delete=models.CASCADE, related_name="reserved_table")
+    table_id = models.ForeignKey(Table, on_delete=models.CASCADE, related_name="reserved_table")    
+    people_count = models.PositiveIntegerField(default=1)
+    comment = models.TextField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     def __str__(self):

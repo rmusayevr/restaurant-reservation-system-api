@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'knox',
     'rest_framework',
+    'rest_framework.authtoken',
     'drf_yasg',
     'drf_spectacular',
     'rest_framework_simplejwt',
@@ -169,11 +170,16 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Restaurant Reservation System API',
-    # 'DESCRIPTION': 'Your project description',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SPLIT_REQUEST': True
-    # OTHER SETTINGS
 }
 
 DATETIME_INPUT_FORMATS = ['%d/%m/%Y %H:%M']  
+
+EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST="smtp.gmail.com"
+EMAIL_USE_TLS=True
+EMAIL_PORT=587
+EMAIL_HOST_USER='resootime@gmail.com'
+EMAIL_HOST_PASSWORD='dvnbolhbrdgplikz'

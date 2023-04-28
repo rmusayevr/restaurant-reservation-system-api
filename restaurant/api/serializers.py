@@ -1,9 +1,18 @@
 from rest_framework import serializers
-from restaurant.models import Category, Image, Restaurant, Table, Reservation, User, Map, WorkingTime
+from restaurant.models import (
+    Category,
+    Image,
+    Restaurant,
+    Table,
+    Reservation,
+    User,
+    Map,
+    WorkingTime,
+    OnlineReservTime
+)
 from rest_framework.validators import UniqueValidator
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate
-from django.contrib.sites.shortcuts import get_current_site
 from django.template.loader import render_to_string
 from django.core.mail import send_mail
 from reservation_system.settings import EMAIL_HOST_USER
@@ -91,12 +100,14 @@ class RegisterSerializer(serializers.ModelSerializer):
                 user_id=user,
             )
             email = client.user_id.email
+            last_name = client.user_id.last_name
+            first_name = client.user_id.first_name
             client.save()
             id = Restaurant.objects.get(user_id=client.user_id).pk
-            current_site = get_current_site(self.context['request'])
             message = render_to_string('confirm-restaurant.html', {
-                'domain': current_site.domain,
                 'id': id,
+                'last_name': last_name,
+                'first_name': first_name
             })
             subject = 'Restoranınızın Qeydiyyatı Təsdiqləndi!'
             from_email = EMAIL_HOST_USER
@@ -148,16 +159,26 @@ class WorkingHoursSerializer(serializers.ModelSerializer):
         fields = ['id', 'day', 'open_at', 'close_at']
 
 
+class OnlineReservHoursSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = OnlineReservTime
+        fields = ['id', 'day', 'open_at', 'close_at']
+
+
 class RestaurantListSerializer(serializers.ModelSerializer):
-    images = ImageSerializer(many=True, read_only=True, source='restaurant_images')
+    images = ImageSerializer(many=True, read_only=True,
+                             source='restaurant_images')
     working_hours = WorkingHoursSerializer(
         many=True, read_only=True, source='restaurant_working_times')
+    online_reserv_hours = OnlineReservHoursSerializer(
+        many=True, read_only=True, source='restaurant_online_reserv_times')
     user_id = UserListSerializer()
 
     class Meta:
         model = Restaurant
-        fields = ['id', 'name', 'location', 'images',
-                  'rate', 'working_hours', 'user_id']
+        fields = ['id', 'name', 'location', 'images','rate', 'working_hours', 
+                  'online_reserv_hours', 'user_id', 'is_verified']
 
 
 class RestaurantConfirmSerializer(serializers.ModelSerializer):
@@ -171,22 +192,31 @@ class RestaurantCompleteRegistrationSerializer(serializers.ModelSerializer):
     working_hours = WorkingHoursSerializer(
         many=True, read_only=True, source='restaurant_working_times')
     working_hours_data = serializers.ListField(write_only=True, required=False)
+    online_reserv_hours = OnlineReservHoursSerializer(
+        many=True, read_only=True, source='restaurant_online_reserv_times')
+    online_reserv_hours_data = serializers.ListField(
+        write_only=True, required=False)
 
     class Meta:
         model = Restaurant
-        fields = ['id', 'table_count', 'category', 'people_count',
-                  'working_hours', 'working_hours_data', 'description', 'subscription',  'phone', 'googleMapLink']
+        fields = ['id', 'name', 'location', 'table_count', 'category', 'people_count', 'working_hours',
+                  'working_hours_data', 'online_reverse_hours', 'online_reverse_hours_data', 'description', 
+                  'subscription',  'phone', 'googleMapLink', 'is_allowed']
+
 
 class RestaurantDetailSerializer(serializers.ModelSerializer):
-    images = ImageSerializer(many=True, read_only=True, source='restaurant_images')
+    images = ImageSerializer(many=True, read_only=True,
+                             source='restaurant_images')
     category = CategorySerializer()
     working_hours = WorkingHoursSerializer(
         many=True, read_only=True, source='restaurant_working_times')
+    online_reserv_hours = OnlineReservHoursSerializer(
+        many=True, read_only=True, source='restaurant_online_reserv_times')
 
     class Meta:
         model = Restaurant
-        fields = ['id', 'name', 'location', 'rate', 'category', 'images',
-                  'phone', 'description', 'working_hours', 'googleMapLink']
+        fields = ['id', 'name', 'location', 'rate', 'category', 'images','phone', 
+                  'description', 'working_hours', 'online_reserv_hours', 'googleMapLink', 'is_allowed']
 
 
 class TableListCreateSerializer(serializers.ModelSerializer):
@@ -230,7 +260,7 @@ class ReservationListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
         fields = ['id', 'restaurant_id', 'table_id', 'user_id', 'date',
-                  'is_active',  'email', 'first_name', 'last_name', 'phone_number']
+                  'is_active',  'email', 'first_name', 'last_name', 'phone_number', 'people_count']
 
 
 class ReservationCreateSerializer(serializers.ModelSerializer):
@@ -242,7 +272,7 @@ class ReservationCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
         fields = ['id', 'table_id', 'user_id', 'date', 'restaurant_id',
-                  'email', 'first_name', 'last_name', 'phone_number']
+                  'email', 'first_name', 'last_name', 'phone_number', 'people_count']
 
     def __init__(self, *args, **kwargs):
         restaurant_id = kwargs['context'].get('restaurant_id')

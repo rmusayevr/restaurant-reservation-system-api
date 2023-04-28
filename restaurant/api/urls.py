@@ -22,6 +22,7 @@ from .views import (
     MapUpdateAPI,
     TableDeleteAPI,
     RestaurantImagesAPI,
+    RestaurantDeleteImagesAPI
 )
 
 urlpatterns = [
@@ -53,6 +54,8 @@ urlpatterns = [
          MapUpdateAPI.as_view(), name='update-map'),
     path('restaurant/<int:pk>/create-image/',
          RestaurantImagesAPI.as_view(), name='create-image'),
+    path('restaurant/<int:pk>/delete-images/',
+         RestaurantDeleteImagesAPI.as_view(), name='delete-images'),
     path('restaurant/<int:pk>/create-table/',
          TableCreateAPI.as_view(), name='create-table'),
     path('restaurant/<int:pk>/update-table/<int:id>/',
