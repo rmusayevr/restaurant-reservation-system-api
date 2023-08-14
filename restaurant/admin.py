@@ -1,6 +1,11 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User, Category, Image, Restaurant, Table, Reservation, Map, WorkingTime, OnlineReservTime
+from .models import (
+    User, Image, Restaurant, 
+    Table, Reservation, Map, WorkingTime, 
+    OnlineReservTime, Tag, Cuisine, RestaurantType,
+    MenuCategory, MenuCategoryProduct, Wishlist
+)
 
 
 class CustomerUserAdmin(UserAdmin):
@@ -19,11 +24,16 @@ class CustomerUserAdmin(UserAdmin):
     )
 
 admin.site.register(User, CustomerUserAdmin)
-admin.site.register(Category)
 admin.site.register(Image)
 admin.site.register(Restaurant)
 admin.site.register(WorkingTime)
 admin.site.register(OnlineReservTime)
 admin.site.register(Table)
 admin.site.register(Map)
+admin.site.register(Tag)
+admin.site.register(Cuisine)
+admin.site.register(RestaurantType)
 admin.site.register(Reservation)
+admin.site.register(MenuCategory)
+admin.site.register(MenuCategoryProduct)
+admin.site.register(Wishlist)

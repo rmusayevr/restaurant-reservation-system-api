@@ -10,7 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
-import os 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -32,22 +32,27 @@ ALLOWED_HOSTS = ["*"]
 # Application definition
 
 INSTALLED_APPS = [
+    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
     'knox',
     'rest_framework',
+    'rest_framework_swagger',
     'rest_framework.authtoken',
+    'rest_framework_simplejwt',
     'drf_yasg',
     'drf_spectacular',
-    'rest_framework_simplejwt',
-    'rest_framework_swagger',
-    'django_rest_passwordreset',
-    'corsheaders',
     'django_filters',
+    'django_rest_passwordreset',
+    'channels',
+    'corsheaders',
+    'multiselectfield',
+
     'restaurant.apps.RestaurantConfig'
 ]
 
@@ -83,6 +88,7 @@ TEMPLATES = [
 CORS_ALLOW_ALL_ORIGINS = True
 
 WSGI_APPLICATION = 'reservation_system.wsgi.application'
+ASGI_APPLICATION = "reservation_system.asgi.application"
 
 
 # Database
@@ -92,6 +98,15 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        }
     }
 }
 
@@ -130,7 +145,10 @@ USE_TZ = False
 
 AUTH_USER_MODEL = 'restaurant.User'
 
-gettext = lambda s: s
+
+def gettext(s): return s
+
+
 LANGUAGES = (
     ('az', gettext('Azerbaijan')),
     ('en', gettext('English')),
@@ -146,8 +164,14 @@ MODELTRANSLATION_LANGUAGES = ('en', 'az')
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.1/howto/static-files/
 
-STATIC_URL = 'static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+STATIC_URL = '/static/'
+
+if DEBUG:
+    STATICFILES_DIRS = [
+        BASE_DIR / 'static'
+    ]
+else:
+    STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = '/media/'
@@ -175,11 +199,17 @@ SPECTACULAR_SETTINGS = {
     'COMPONENT_SPLIT_REQUEST': True
 }
 
-DATETIME_INPUT_FORMATS = ['%d/%m/%Y %H:%M']  
+DATETIME_INPUT_FORMATS = ['%d/%m/%Y %H:%M']
 
-EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST="smtp.gmail.com"
-EMAIL_USE_TLS=True
-EMAIL_PORT=587
-EMAIL_HOST_USER='resootime@gmail.com'
-EMAIL_HOST_PASSWORD='dvnbolhbrdgplikz'
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_USE_TLS = True
+EMAIL_PORT = 587
+EMAIL_HOST_USER = ''
+EMAIL_HOST_PASSWORD = ''
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}

@@ -1,21 +1,31 @@
-from rest_framework import serializers
+from rest_framework import serializers, fields
 from restaurant.models import (
-    Category,
-    Image,
-    Restaurant,
-    Table,
-    Reservation,
-    User,
     Map,
+    Tag,
+    User,
+    Image,
+    Table,
+    Cuisine,
+    Restaurant,
+    Reservation,
     WorkingTime,
-    OnlineReservTime
+    MenuCategory,
+    RestaurantType,
+    OnlineReservTime,
+    MenuCategoryProduct,
+    RestaurantCondition,
+    Wishlist,
+    payment_choices,
+    parking_choices,
 )
+
 from rest_framework.validators import UniqueValidator
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate
 from django.template.loader import render_to_string
 from django.core.mail import send_mail
 from reservation_system.settings import EMAIL_HOST_USER
+from django.contrib.auth.hashers import check_password
 
 
 class AuthTokenSerializer(serializers.Serializer):
@@ -57,6 +67,39 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "first_name", "last_name", "email", "phone_number"]
 
 
+class UserUpdateSerializer(serializers.ModelSerializer):
+    new_password = serializers.CharField(write_only=True, required=False)
+    old_password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'email',
+                  'phone_number', 'new_password', 'old_password']
+
+    def update(self, instance, validated_data):
+        instance.first_name = validated_data.get(
+            'first_name', instance.first_name)
+        instance.last_name = validated_data.get(
+            'last_name', instance.last_name)
+        instance.email = validated_data.get('email', instance.email)
+        instance.phone_number = validated_data.get(
+            'phone_number', instance.phone_number)
+
+        old_password = validated_data.get('old_password')
+        if old_password:
+            new_password = validated_data.pop('new_password')
+            if not check_password(old_password, instance.password):
+                raise serializers.ValidationError(
+                    "The old password provided is incorrect.")
+            elif old_password == new_password:
+                raise serializers.ValidationError(
+                    "The new password cannot be the same as the old password.")
+            else:
+                instance.set_password(new_password)
+
+        return super().update(instance, validated_data)
+
+
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(
         required=True,
@@ -91,11 +134,11 @@ class RegisterSerializer(serializers.ModelSerializer):
             last_name=validated_data['last_name'],
             phone_number=validated_data['phone_number'],
             location=validated_data['location'],
-            restaurant_name=validated_data['restaurant_name']
+            restaurant_name=validated_data['restaurant_name'].lower()
         )
         if validated_data['location'] != "" and validated_data['restaurant_name'] != "":
             client = Restaurant(
-                name=validated_data['restaurant_name'],
+                name=validated_data['restaurant_name'].lower(),
                 location=validated_data['location'],
                 user_id=user,
             )
@@ -138,18 +181,18 @@ class UserDetailSerializer(serializers.ModelSerializer):
                   'phone_number', 'location', 'restaurant_name', 'is_client']
 
 
-class CategorySerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = Category
-        fields = ['id', 'name']
-
-
 class ImageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Image
         fields = ['id', 'image', 'restaurant']
+
+
+class RestaurantConditionSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = RestaurantCondition
+        fields = ['id', 'condition', 'restaurant']
 
 
 class WorkingHoursSerializer(serializers.ModelSerializer):
@@ -166,7 +209,30 @@ class OnlineReservHoursSerializer(serializers.ModelSerializer):
         fields = ['id', 'day', 'open_at', 'close_at']
 
 
+class RestaurantTypeSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = RestaurantType
+        fields = ['id', 'type']
+
+
+class CuisineSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Cuisine
+        fields = ['id', 'name']
+
+
+class TagSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Tag
+        fields = ['id', 'name']
+
+
 class RestaurantListSerializer(serializers.ModelSerializer):
+    tag = TagSerializer(many=True)
+    type = RestaurantTypeSerializer(many=True)
     images = ImageSerializer(many=True, read_only=True,
                              source='restaurant_images')
     working_hours = WorkingHoursSerializer(
@@ -177,8 +243,9 @@ class RestaurantListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Restaurant
-        fields = ['id', 'name', 'location', 'images','rate', 'working_hours', 
-                  'online_reserv_hours', 'user_id', 'is_verified']
+        fields = ['id', 'name', 'city', 'images', 'rate', 'working_hours',
+                  'online_reserv_hours', 'user_id', 'is_verified', 'slug',
+                  'tag', 'type']
 
 
 class RestaurantConfirmSerializer(serializers.ModelSerializer):
@@ -189,6 +256,8 @@ class RestaurantConfirmSerializer(serializers.ModelSerializer):
 
 
 class RestaurantCompleteRegistrationSerializer(serializers.ModelSerializer):
+    payment = fields.MultipleChoiceField(choices=payment_choices)
+    parking = fields.MultipleChoiceField(choices=parking_choices)
     working_hours = WorkingHoursSerializer(
         many=True, read_only=True, source='restaurant_working_times')
     working_hours_data = serializers.ListField(write_only=True, required=False)
@@ -199,15 +268,21 @@ class RestaurantCompleteRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Restaurant
-        fields = ['id', 'name', 'location', 'table_count', 'category', 'people_count', 'working_hours',
-                  'working_hours_data', 'online_reverse_hours', 'online_reverse_hours_data', 'description', 
-                  'subscription',  'phone', 'googleMapLink', 'is_allowed']
+        fields = ['id', 'name', 'location', 'city', 'table_count', 'people_count', 'working_hours', 'minimum_price', 'websiteLink', 'instagramLink', 'facebookLink',
+                  'maximum_price', 'service_charge', 'working_hours_data', 'online_reserv_hours', 'online_reserv_hours_data', 'description', 'minimum_age',
+                  'subscription', 'phone', 'googleMapLink', 'is_allowed', 'tag', 'type', 'cuisine', 'payment', 'parking', 'notes']
 
 
 class RestaurantDetailSerializer(serializers.ModelSerializer):
+    tag = TagSerializer(many=True)
+    type = RestaurantTypeSerializer(many=True)
+    cuisine = CuisineSerializer(many=True)
     images = ImageSerializer(many=True, read_only=True,
                              source='restaurant_images')
-    category = CategorySerializer()
+    conditions = RestaurantConditionSerializer(
+        many=True, read_only=True, source='restaurant_conditions')
+    payment = fields.MultipleChoiceField(choices=payment_choices)
+    parking = fields.MultipleChoiceField(choices=parking_choices)
     working_hours = WorkingHoursSerializer(
         many=True, read_only=True, source='restaurant_working_times')
     online_reserv_hours = OnlineReservHoursSerializer(
@@ -215,8 +290,10 @@ class RestaurantDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Restaurant
-        fields = ['id', 'name', 'location', 'rate', 'category', 'images','phone', 
-                  'description', 'working_hours', 'online_reserv_hours', 'googleMapLink', 'is_allowed']
+        fields = ['id', 'name', 'location', 'city', 'rate', 'images', 'phone', 'minimum_price', 'maximum_price',
+                  'service_charge', 'description', 'working_hours', 'online_reserv_hours', 'googleMapLink',
+                  'is_allowed', 'tag', 'type', 'cuisine', 'payment', 'parking', 'conditions',
+                  'instagramLink', 'facebookLink', 'websiteLink', 'minimum_age', 'notes', 'slug']
 
 
 class TableListCreateSerializer(serializers.ModelSerializer):
@@ -259,7 +336,7 @@ class ReservationListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Reservation
-        fields = ['id', 'restaurant_id', 'table_id', 'user_id', 'date',
+        fields = ['id', 'restaurant_id', 'table_id', 'user_id', 'date', 'comment',
                   'is_active',  'email', 'first_name', 'last_name', 'phone_number', 'people_count']
 
 
@@ -271,7 +348,7 @@ class ReservationCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Reservation
-        fields = ['id', 'table_id', 'user_id', 'date', 'restaurant_id',
+        fields = ['id', 'table_id', 'user_id', 'date', 'restaurant_id', 'comment',
                   'email', 'first_name', 'last_name', 'phone_number', 'people_count']
 
     def __init__(self, *args, **kwargs):
@@ -287,3 +364,31 @@ class ReservationUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
         fields = ['id', 'restaurant_id']
+
+
+class MenuCategoryProductListSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = MenuCategoryProduct
+        fields = ['id', 'name', 'price', 'image', 'content']
+
+
+class MenuCategoryListCreateSerializer(serializers.ModelSerializer):
+    products = MenuCategoryProductListSerializer(
+        many=True, read_only=True, source='menu_category_products')
+
+    class Meta:
+        model = MenuCategory
+        fields = ['id', 'category', 'restaurant', 'products']
+
+
+class WishlistSerializer(serializers.ModelSerializer):
+    restaurants = RestaurantListSerializer(many=True)
+
+    class Meta:
+        model = Wishlist
+        fields = [
+            'user',
+            'restaurants'
+        ]
+

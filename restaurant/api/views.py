@@ -1,9 +1,9 @@
 from datetime import datetime
 from rest_framework.generics import (
-    ListAPIView, 
-    ListCreateAPIView, 
-    CreateAPIView, 
-    UpdateAPIView, 
+    ListAPIView,
+    ListCreateAPIView,
+    CreateAPIView,
+    UpdateAPIView,
     DestroyAPIView,
 )
 from rest_framework.views import APIView
@@ -11,12 +11,18 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.http import Http404
 from restaurant.models import (
-    Restaurant, 
-    Table, 
-    Reservation, 
-    Map, 
-    WorkingTime, 
-    Image
+    Restaurant,
+    Table,
+    Reservation,
+    Map,
+    WorkingTime,
+    Image,
+    User,
+    OnlineReservTime,
+    RestaurantCondition,
+    MenuCategory,
+    MenuCategoryProduct,
+    Wishlist
 )
 from .serializers import (
     RestaurantListSerializer,
@@ -27,23 +33,23 @@ from .serializers import (
     ReservationCreateSerializer,
     ReservationUpdateSerializer,
     ReservationListSerializer,
-    AuthTokenSerializer, 
-    UserSerializer, 
+    AuthTokenSerializer,
+    UserSerializer,
     RegisterSerializer,
     UserListSerializer,
     UserDetailSerializer,
     MapListSerializer,
     TableUpdateSerializer,
     MapCreateUpdateSerializer,
-    ImageSerializer
+    ImageSerializer,
+    RestaurantConditionSerializer,
+    MenuCategoryListCreateSerializer,
+    UserUpdateSerializer,
+    WishlistSerializer
 )
 from django.contrib.auth import login
 from knox.views import LoginView
 from rest_framework.permissions import AllowAny
-from knox.models import AuthToken
-from knox.settings import CONSTANTS
-from django.contrib.auth import get_user_model
-User = get_user_model()
 from django.template.loader import render_to_string
 from django.core.mail import send_mail
 from reservation_system.settings import EMAIL_HOST_USER
@@ -54,30 +60,48 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.authtoken.models import Token
+from rest_framework.exceptions import NotFound
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 
-class RestaurantTokenAuthentication(TokenAuthentication):
+
+# authentication
+class RestaurantUserTokenAuthentication(TokenAuthentication):
     def authenticate(self, request):
         user_auth_tuple = super().authenticate(request)
         if user_auth_tuple is None:
             return None
 
         user, auth = user_auth_tuple
+        if 'restaurant' in request.get_full_path():
+            try:
+                Restaurant.objects.get(user_id=user)
+            except Restaurant.DoesNotExist:
+                raise AuthenticationFailed('User does not own a restaurant')
 
-        try:
-            restaurant = Restaurant.objects.get(user_id=user)
-        except Restaurant.DoesNotExist:
-            raise AuthenticationFailed('User does not own a restaurant')
-        
-        pk = request.resolver_match.kwargs.get('pk')
-        owner = Restaurant.objects.get(pk=pk).user_id
-        owner_auth = Token.objects.get(user=owner)
+            pk = request.resolver_match.kwargs.get('pk')
+            owner = Restaurant.objects.get(pk=pk).user_id
+            owner_auth = Token.objects.get(user=owner)
 
-        if owner_auth.key != auth.key:
-            raise AuthenticationFailed('Token does not belong to owner')
+            if owner_auth.key != auth.key:
+                raise AuthenticationFailed('Token does not belong to owner')
+        elif 'users' in request.get_full_path():
+            try:
+                User.objects.get(first_name=user)
+            except User.DoesNotExist:
+                raise AuthenticationFailed('User does not exist')
+
+            pk = request.resolver_match.kwargs.get('pk')
+            customer = User.objects.get(pk=pk)
+            customer_auth = Token.objects.get(user=customer)
+
+            if customer_auth.key != auth.key:
+                raise AuthenticationFailed('Token does not belong to customer')
 
         return user, auth
 
-# register, login, list of users, detail of user
+
+# CRUD operations for user
 class RegisterAPIView(CreateAPIView):
     serializer_class = RegisterSerializer
 
@@ -90,7 +114,8 @@ class RegisterAPIView(CreateAPIView):
             "user": UserSerializer(user, context=self.get_serializer_context()).data,
             "token": str(auth_token)
         })
-    
+
+
 class LoginAPI(LoginView):
     serializer_class = AuthTokenSerializer
     permission_classes = (AllowAny,)
@@ -101,17 +126,37 @@ class LoginAPI(LoginView):
         user = serializer.validated_data['user']
         login(request, user)
         auth_token = Token.objects.get(user=user)
+        restaurant = Restaurant.objects.filter(user_id=user).first()
+        if restaurant:
+            return Response({
+                "user": str(user),
+                "token": str(auth_token),
+                "restaurant": restaurant.name
+            })
         return Response({
             "user": str(user),
             "token": str(auth_token)
         })
-    
+
+
+class UserUpdateAPIView(UpdateAPIView):
+    serializer_class = UserUpdateSerializer
+    authentication_classes = [RestaurantUserTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['put']
+
+    def get_queryset(self):
+        pk = self.kwargs['pk']
+        return User.objects.filter(pk=pk)
+
+
 class UserListAPIView(ListAPIView):
     queryset = User.objects.all()
     serializer_class = UserListSerializer
 
+
 class UserDetailAPIView(APIView):
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk):
@@ -125,9 +170,8 @@ class UserDetailAPIView(APIView):
         serializer = UserDetailSerializer(user)
         return Response(serializer.data)
 
+
 class UserTokenDetailAPIView(APIView):
-    authentication_classes = [RestaurantTokenAuthentication]
-    permission_classes = [IsAuthenticated]
 
     def get_object(self, token):
         try:
@@ -136,15 +180,17 @@ class UserTokenDetailAPIView(APIView):
             raise Http404
 
     def get(self, request, token, format=None):
-        knox_object = AuthToken.objects.filter(token_key=token[:CONSTANTS.TOKEN_KEY_LENGTH]).first()
-        user = self.get_object(knox_object.user.pk)
+        auth_token = Token.objects.get(key=token)
+        user = self.get_object(auth_token.user.pk)
         serializer = UserDetailSerializer(user)
         return Response(serializer.data)
 
-# list or detail of restaurant, confirm and complete restaurant
+
+# CRUD operations for restaurant
 class CustomPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
+
 
 class RestaurantListAPI(ListAPIView):
     queryset = Restaurant.objects.all()
@@ -154,7 +200,22 @@ class RestaurantListAPI(ListAPIView):
     def get_queryset(self):
         return Restaurant.objects.filter(user_id__is_client=True, is_verified=True)
 
-class RestaurantDetailAPI(APIView):
+
+class RestaurantDetailNameAPI(APIView):
+
+    def get_object(self, slug):
+        try:
+            return Restaurant.objects.get(slug=slug)
+        except Restaurant.DoesNotExist:
+            raise Http404
+
+    def get(self, request, slug, format=None):
+        restaurant = self.get_object(slug)
+        serializer = RestaurantDetailSerializer(restaurant)
+        return Response(serializer.data)
+
+
+class RestaurantDetailIDAPI(APIView):
 
     def get_object(self, pk):
         try:
@@ -167,25 +228,24 @@ class RestaurantDetailAPI(APIView):
         serializer = RestaurantDetailSerializer(restaurant)
         return Response(serializer.data)
 
+
 class RestaurantTokenDetailAPIView(APIView):
-    authentication_classes = [RestaurantTokenAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get_object(self, token):
-        try:
-            return Restaurant.objects.get(user_id__pk=token)
-        except Restaurant.DoesNotExist:
-            raise Http404
-
     def get(self, request, token, format=None):
-        knox_object = AuthToken.objects.filter(token_key=token[:CONSTANTS.TOKEN_KEY_LENGTH]).first()
-        user = self.get_object(knox_object.user.pk)
-        serializer = RestaurantDetailSerializer(user)
-        return Response(serializer.data)
+        try:
+            token_obj = Token.objects.get(key=token)
+            user = token_obj.user
+            restaurant = Restaurant.objects.get(user_id=user)
+            serializer = RestaurantDetailSerializer(restaurant)
+            return Response(serializer.data)
+        except Token.DoesNotExist:
+            raise NotFound("Invalid token")
+        except Restaurant.DoesNotExist:
+            raise NotFound("Restaurant not found")
+
 
 class RestaurantConfirmAPI(UpdateAPIView):
     queryset = Restaurant.objects.all()
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = RestaurantConfirmSerializer
     http_method_names = ['patch']
@@ -196,8 +256,9 @@ class RestaurantConfirmAPI(UpdateAPIView):
         restaurant.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+
 class RestaurantCompleteAPI(UpdateAPIView):
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     queryset = Restaurant.objects.all()
     serializer_class = RestaurantCompleteRegistrationSerializer
@@ -211,17 +272,19 @@ class RestaurantCompleteAPI(UpdateAPIView):
     def put(self, request, *args, **kwargs):
         data = request.data
         instance = self.get_object()
-        
         serializer = self.get_serializer(instance, data=data)
         if serializer.is_valid():
             instance.restaurant_working_times.all().delete()
             instance.restaurant_online_reserv_times.all().delete()
             for working_hour in data['working_hours_data']:
-                working_hour_obj = WorkingTime.objects.create(restaurant=instance, day=working_hour['day'], open_at=working_hour['open_at'], close_at=working_hour['close_at'])
+                working_hour_obj = WorkingTime.objects.create(
+                    restaurant=instance, day=working_hour['day'], open_at=working_hour['open_at'], close_at=working_hour['close_at'])
                 instance.restaurant_working_times.add(working_hour_obj)
             for online_reserv_hours in data['online_reserv_hours_data']:
-                online_reserv_hours_obj = WorkingTime.objects.create(restaurant=instance, day=online_reserv_hours['day'], open_at=online_reserv_hours['open_at'], close_at=online_reserv_hours['close_at'])
-                instance.restaurant_online_reserv_times.add(online_reserv_hours_obj)
+                online_reserv_hours_obj = OnlineReservTime.objects.create(
+                    restaurant=instance, day=online_reserv_hours['day'], open_at=online_reserv_hours['open_at'], close_at=online_reserv_hours['close_at'])
+                instance.restaurant_online_reserv_times.add(
+                    online_reserv_hours_obj)
             user = instance.user_id
             user.is_client = True
             user.save()
@@ -230,8 +293,9 @@ class RestaurantCompleteAPI(UpdateAPIView):
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class RestaurantImagesAPI(CreateAPIView):
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = ImageSerializer
 
@@ -239,10 +303,40 @@ class RestaurantImagesAPI(CreateAPIView):
         restaurant_id = self.kwargs.get('pk')
         restaurant = Restaurant.objects.get(pk=restaurant_id)
         serializer.save(restaurant=restaurant)
-        
+        return Response(serializer.data)
+
+
+class RestaurantConditionsAPI(CreateAPIView):
+    authentication_classes = [RestaurantUserTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = RestaurantConditionSerializer
+
+    def perform_create(self, serializer):
+        restaurant_id = self.kwargs.get('pk')
+        restaurant = Restaurant.objects.get(pk=restaurant_id)
+        serializer.save(restaurant=restaurant)
+        return Response(serializer.data)
+
+
+class RestaurantDeleteConditionsAPI(DestroyAPIView):
+    queryset = RestaurantCondition.objects.all()
+    authentication_classes = [RestaurantUserTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = RestaurantConditionSerializer
+    http_method_names = ['delete']
+
+    def get_object(self):
+        pk = self.kwargs['pk']
+        return RestaurantCondition.objects.filter(restaurant=pk).all()
+
+    def perform_destroy(self, instance):
+        instance = self.get_object()
+        return super().perform_destroy(instance)
+
+
 class RestaurantDeleteImagesAPI(DestroyAPIView):
     queryset = Image.objects.all()
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = ImageSerializer
     http_method_names = ['delete']
@@ -250,15 +344,16 @@ class RestaurantDeleteImagesAPI(DestroyAPIView):
     def get_object(self):
         pk = self.kwargs['pk']
         return Image.objects.filter(restaurant=pk).all()
-    
+
     def perform_destroy(self, instance):
         instance = self.get_object()
         return super().perform_destroy(instance)
-        
-# create, update and get tables and maps
+
+
+# CRUD operations for table and map
 class TableCreateAPI(CreateAPIView):
     queryset = Table.objects.all()
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = TableListCreateSerializer
 
@@ -275,21 +370,23 @@ class TableCreateAPI(CreateAPIView):
 
         return Response(serializer.data)
 
+
 class TableUpdateAPI(UpdateAPIView):
     queryset = Table.objects.all()
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = TableUpdateSerializer
     lookup_field = 'id'
     http_method_names = ['patch']
-   
+
     def get_queryset(self):
         pk = self.kwargs['id']
         return Table.objects.filter(pk=pk)
 
+
 class TableDeleteAPI(DestroyAPIView):
     queryset = Table.objects.all()
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = TableListCreateSerializer
     lookup_field = 'id'
@@ -299,6 +396,7 @@ class TableDeleteAPI(DestroyAPIView):
         pk = self.kwargs['id']
         return Table.objects.filter(pk=pk)
 
+
 class MapListAPI(ListAPIView):
     serializer_class = MapListSerializer
 
@@ -306,8 +404,9 @@ class MapListAPI(ListAPIView):
         pk = self.kwargs['pk']
         return Map.objects.filter(restaurant=pk).all()
 
+
 class MapCreateAPI(CreateAPIView):
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = MapCreateUpdateSerializer
 
@@ -318,10 +417,11 @@ class MapCreateAPI(CreateAPIView):
         arr = []
         for table in tables:
             arr.append(table)
-        serializer.save(table=arr,restaurant=restaurant)
-    
+        serializer.save(table=arr, restaurant=restaurant)
+
+
 class MapUpdateAPI(UpdateAPIView):
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = MapCreateUpdateSerializer
     http_method_names = ['put']
@@ -332,12 +432,14 @@ class MapUpdateAPI(UpdateAPIView):
             instance = Map.objects.get(restaurant=pk)
         except Map.DoesNotExist:
             raise Http404("Map does not exist")
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         return Response(serializer.data)
 
-# create, get, update reservation and get for users
+
+# CRUD operations for reservation
 class ReservationCreateAPI(ListCreateAPIView):
     queryset = Reservation.objects.all()
     serializer_class = ReservationCreateSerializer
@@ -346,7 +448,7 @@ class ReservationCreateAPI(ListCreateAPIView):
         context = super().get_serializer_context()
         context['restaurant_id'] = self.kwargs['pk']
         return context
-    
+
     def create(self, request, *args, **kwargs):
         restaurant_id = self.kwargs.get('pk')
         mutable_data = request.data.copy()
@@ -357,14 +459,16 @@ class ReservationCreateAPI(ListCreateAPIView):
             user = User.objects.get(pk=user_id)
             first_name = user.first_name
             last_name = user.last_name
-        else:       
+        else:
             first_name = mutable_data['first_name']
             last_name = mutable_data['last_name']
 
         restaurant = restaurant.name
         date_query = mutable_data['date']
-        time = datetime.strptime(date_query, '%Y-%m-%dT%H:%M').strftime('%H:%M')
-        date = datetime.strptime(date_query, '%Y-%m-%dT%H:%M').strftime('%d/%m/%Y')
+        time = datetime.strptime(
+            date_query, '%Y-%m-%dT%H:%M').strftime('%H:%M')
+        date = datetime.strptime(
+            date_query, '%Y-%m-%dT%H:%M').strftime('%d/%m/%Y')
         table_id = mutable_data['table_id']
         table = Table.objects.get(id=table_id)
 
@@ -384,17 +488,41 @@ class ReservationCreateAPI(ListCreateAPIView):
         else:
             to_email = mutable_data['email']
         send_mail(
-            subject = subject,
-            message = message,
-            from_email = from_email,
-            recipient_list = [to_email, ]
+            subject=subject,
+            message=message,
+            from_email=from_email,
+            recipient_list=[to_email, ]
         )
         serializer = self.get_serializer(data=mutable_data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            'admin_panel_%s' % restaurant_id,
+            {
+                'type': 'send_reservation_notification',
+                'reservation_id': kwargs['pk'],
+                'message': message,
+            }
+        )
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+
 class ReservationListAPI(ListAPIView):
+    serializer_class = ReservationListSerializer
+
+    def get_queryset(self):
+        pk = self.kwargs['pk']
+        queryset = Reservation.objects.filter(restaurant_id=pk, is_active=True)
+        date_str = self.request.query_params.get('date')
+        if date_str:
+            date = datetime.strptime(date_str, '%d/%m/%Y')
+            queryset = queryset.filter(date__date=date)
+        return queryset.order_by('-date')
+
+class AllReservationListAPI(ListAPIView):
     serializer_class = ReservationListSerializer
 
     def get_queryset(self):
@@ -403,9 +531,9 @@ class ReservationListAPI(ListAPIView):
         date_str = self.request.query_params.get('date')
         if date_str:
             date = datetime.strptime(date_str, '%d/%m/%Y')
-            queryset = queryset.filter(date__date=date, is_active=True)
+            queryset = queryset.filter(date__date=date)
         return queryset.order_by('-date')
-    
+
 class ReservationUpdateAPI(UpdateAPIView):
     queryset = Reservation.objects.all()
     serializer_class = ReservationUpdateSerializer
@@ -419,10 +547,32 @@ class ReservationUpdateAPI(UpdateAPIView):
         reservation = Reservation.objects.get(id=kwargs['pk'])
         reservation.is_active = False
         reservation.save()
+        first_name = reservation.user_id.first_name
+        last_name = reservation.user_id.last_name
+        to_email = reservation.user_id.email
+        restaurant_name = reservation.restaurant_id.name
+        date_query = reservation.date
+        date = datetime.strptime(
+            str(date_query), '%Y-%m-%d %H:%M:%S').strftime('%d/%m/%Y')
+        message = render_to_string('cancel-reservation.html', {
+            'first_name': first_name,
+            'last_name': last_name,
+            'restaurant': restaurant_name,
+            'date': date
+        })
+        subject = 'Rezervasiyanız ləğv olundu!'
+        from_email = EMAIL_HOST_USER
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=from_email,
+            recipient_list=[to_email, ]
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+
 class ReservationUserListAPI(ListAPIView):
-    authentication_classes = [RestaurantTokenAuthentication]
+    authentication_classes = [RestaurantUserTokenAuthentication]
     permission_classes = [IsAuthenticated]
     serializer_class = ReservationListSerializer
 
@@ -430,3 +580,65 @@ class ReservationUserListAPI(ListAPIView):
         pk = self.kwargs['pk']
         return Reservation.objects.filter(user_id=pk).all()
 
+
+# CRUD operations for menu
+class MenuCategoryListAPI(ListAPIView):
+    serializer_class = MenuCategoryListCreateSerializer
+
+    def get_queryset(self):
+        pk = self.kwargs['pk']
+        return MenuCategory.objects.filter(restaurant=pk).all()
+
+
+class MenuCategoryCreateAPI(CreateAPIView):
+    serializer_class = MenuCategoryListCreateSerializer
+    queryset = MenuCategory.objects.all()
+    http_method_names = ['post']
+
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        restaurant_id = self.kwargs.get('pk')
+        data['restaurant'] = restaurant_id
+        serializer = self.get_serializer(data=data)
+        if serializer.is_valid():
+            menu_category = serializer.save()
+            for product in data['products']:
+                MenuCategoryProduct.objects.create(
+                    category=menu_category, name=product['name'], price=product['price'], image=product['image'], content=product['content'])
+            return Response(serializer.data)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class WishlistAPI(APIView):
+    queryset = Wishlist.objects.all()
+    serializer_class = WishlistSerializer
+    authentication_classes = [RestaurantUserTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'delete']
+
+    def get(self, request, *args, **kwargs):
+        obj, created = Wishlist.objects.get_or_create(user = request.user)
+        serializer = self.serializer_class(obj)
+        return Response(serializer.data, status = status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        restaurant_id = request.data.get('restaurant')
+        restaurant = Restaurant.objects.filter(pk=restaurant_id).first()
+        if restaurant and self.request.user.is_authenticated:
+            wishlist1, created = Wishlist.objects.get_or_create(user = request.user)
+            wishlist2 = Wishlist.objects.filter(user = request.user).first()
+            wishlist2.restaurants.add(restaurant)
+            message = {'success': True, 'message' : 'Restaurant added to your favourites!'}
+            return Response(message, status = status.HTTP_201_CREATED)
+
+    def delete(self, request, *args, **kwargs):
+        restaurant_id = request.data.get('restaurant')
+        if restaurant_id:
+            user_wishlist = Wishlist.objects.get(user = self.request.user)
+            restaurant = user_wishlist.restaurants.get(id = restaurant_id)
+            user_wishlist.restaurants.remove(restaurant.id)
+        message = {'success': True, 'message' : 'Product deleted from your wishlist.'}
+        return Response(message, status = status.HTTP_200_OK)
+    
+    
